@@ -2380,13 +2380,21 @@ function extractOutDirArgs(args) {
     const arg = args[index];
     if (arg === '--out-dir') {
       outDir = args[index + 1];
-      if (!outDir || outDir.startsWith('--')) fail('--out-dir requires a directory path.');
+      if (!outDir || outDir.startsWith('--')) rejectCliArgument('--out-dir requires a directory path.', {
+        code: 'cli/missing-option-value',
+        subject: { option: '--out-dir' },
+        supportedFixes: ['provide one directory path after --out-dir'],
+      });
       index += 1;
       continue;
     }
     if (arg.startsWith('--out-dir=')) {
       outDir = arg.slice('--out-dir='.length);
-      if (!outDir) fail('--out-dir requires a directory path.');
+      if (!outDir) rejectCliArgument('--out-dir requires a directory path.', {
+        code: 'cli/missing-option-value',
+        subject: { option: '--out-dir' },
+        supportedFixes: ['provide one directory path after --out-dir'],
+      });
       continue;
     }
     rest.push(arg);

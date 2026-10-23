@@ -600,15 +600,6 @@ test('cli: visual-check rejects an invalid raw --out-dir before filesystem mutat
   assert.equal(evidence.screenshots.every((file) => !fs.existsSync(file)), true);
 });
 
-test('cli: visual-check rejects --out-dir with no value', () => {
-  const out = path.join(tmp, 'visual-check-outdir-missing-value.html');
-  fs.writeFileSync(out, '<!doctype html><html><body>delivered</body></html>');
-  const result = run(['visual-check', out, '--out-dir']);
-
-  assert.notEqual(result.status, 0);
-  assert.match(result.stderr, /--out-dir requires a directory path/);
-});
-
 test('cli: visual-check describes human output as automated browser evidence, not visual approval', () => {
   const out = path.join(tmp, 'visual-check-browser-evidence.html');
   fs.writeFileSync(out, '<!doctype html><html><body>delivered</body></html>');
@@ -4531,7 +4522,8 @@ test('cli: validate rejects unknown flags, layout-json assignment typos, and ext
   }
 });
 
-test('cli: validate, deliver, and inspect keep argument failures machine-readable with --json', () => {
+test('cli: validate, deliver, finalize, and inspect keep argument failures machine-readable with --json', () => {
+  const cwd = fs.mkdtempSync(path.join(tmp, 'argument-errors-'));
   const workflow = path.join(skillRoot, 'examples/agent-tool-call.workflow.json');
   const sequence = path.join(skillRoot, 'examples/cache-miss-request.sequence.json');
   const architecture = path.join(skillRoot, 'examples/web-app.architecture.json');
@@ -4622,6 +4614,16 @@ test('cli: validate, deliver, and inspect keep argument failures machine-readabl
       command: 'deliver',
       code: 'cli/usage',
     },
+    ...[
+      ['--out-dir', '--json'],
+      ['--out-dir=', '--json'],
+      ['--json', '--out-dir'],
+    ].map(options => ({
+      args: ['finalize', 'workflow', workflow, 'diagram.html', ...options],
+      command: 'finalize',
+      code: 'cli/missing-option-value',
+      subject: { option: '--out-dir' },
+    })),
     {
       args: ['inspect', 'architecture', architecture, '--json', '--bogus'],
       command: 'inspect',
@@ -4649,7 +4651,7 @@ test('cli: validate, deliver, and inspect keep argument failures machine-readabl
   ];
 
   for (const { args, command, code, subject = {} } of cases) {
-    const result = run(args);
+    const result = run(args, { cwd });
     assert.equal(result.status, 2, `${args.join(' ')}\n${result.stderr}\n${result.stdout}`);
     assert.equal(result.stderr, '');
     const failure = JSON.parse(result.stdout);
@@ -4666,6 +4668,24 @@ test('cli: validate, deliver, and inspect keep argument failures machine-readabl
     assert.ok(failure.diagnostics[0].supportedFixes.length > 0);
     assert.equal('stack' in failure, false);
     assert.equal('stack' in failure.diagnostics[0], false);
+    assert.deepEqual(fs.readdirSync(cwd), [], 'argument failures must not create artifacts or receipts');
+  }
+});
+
+test('cli: out-dir with no value preserves human errors across its callers', () => {
+  const cwd = fs.mkdtempSync(path.join(tmp, 'out-dir-errors-'));
+  for (const args of [
+    ['finalize', 'workflow', 'missing.json', 'diagram.html'],
+    ['browser-check', 'missing.html'],
+    ['visual-check', 'missing.html'],
+  ]) {
+    for (const options of [['--out-dir'], ['--out-dir='], ['--out-dir', '--summary']]) {
+      const result = run([...args, ...options], { cwd });
+      assert.equal(result.status, 2, result.stderr);
+      assert.equal(result.stdout, '');
+      assert.equal(result.stderr.trim(), '--out-dir requires a directory path.');
+      assert.deepEqual(fs.readdirSync(cwd), [], 'argument failures must not create artifacts or receipts');
+    }
   }
 });
 
