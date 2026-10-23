@@ -56,6 +56,51 @@ test('explainer direct render resolves contained resources against author direct
   const rendered=run(['render','explainer',input,output]);assert.equal(rendered.status,0,rendered.stderr);assert.ok(fs.readFileSync(output,'utf8').includes('data:image/png;base64,'));
 });
 
+test('explainer rendering rejects invalid UTF-8 before replacing an artifact', t => {
+  const dir = temporary(t), doc = fixture();
+  doc.panels[0].blocks[0].text = 'Synthetic source marker.';
+  const input = write(dir, doc), output = path.join(dir, 'result.html');
+  const source = fs.readFileSync(input);
+  source[source.indexOf('marker')] = 0xff;
+  fs.writeFileSync(input, source);
+  fs.writeFileSync(output, 'last verified artifact');
+  const before = fs.readdirSync(dir).sort();
+
+  const rendered = run(['render', 'explainer', input, output], { ARCHIFY_DIAGNOSTIC_FORMAT: '' });
+  assert.equal(rendered.status, 1, rendered.stdout + rendered.stderr);
+  assert.equal(rendered.stdout, '');
+  assert.match(rendered.stderr, /\[explainer\/source-encoding\]/);
+  assert.doesNotMatch(rendered.stderr, /\n\s+at\s|Node\.js v/);
+  assert.equal(fs.readFileSync(output, 'utf8'), 'last verified artifact');
+  assert.deepEqual(fs.readdirSync(dir).sort(), before);
+
+  const direct = spawnSync(process.execPath, [
+    path.resolve('archify/renderers/explainer/render-explainer.mjs'), input, output,
+  ], { encoding: 'utf8', env: { ...process.env, ARCHIFY_UPDATE_CHECK_DISABLED: '1', ARCHIFY_DIAGNOSTIC_FORMAT: 'json' } });
+  assert.equal(direct.status, 1, direct.stdout + direct.stderr);
+  assert.equal(direct.stdout, '');
+  const diagnostic = JSON.parse(direct.stderr).diagnostics[0];
+  assert.equal(diagnostic.code, 'explainer/source-encoding');
+  assert.deepEqual(diagnostic.subject, { input, line: 1, component: 'document' });
+  assert.equal(diagnostic.evidence.reason, 'invalid-utf8');
+  assert.ok(diagnostic.supportedFixes.length);
+  assert.equal(fs.readFileSync(output, 'utf8'), 'last verified artifact');
+  assert.deepEqual(fs.readdirSync(dir).sort(), before);
+});
+
+test('explainer rendering preserves valid UTF-8 including an authored replacement character', t => {
+  const dir = temporary(t), doc = fixture();
+  doc.panels[0].blocks[0].text = 'Café 客户 😀 �.';
+  const input = write(dir, doc), output = path.join(dir, 'result.html');
+  const source = fs.readFileSync(input);
+  const rendered = run(['render', 'explainer', input, output]);
+  assert.equal(rendered.status, 0, rendered.stdout + rendered.stderr);
+  const prepared = bundle(output);
+  assert.deepEqual(Buffer.from(prepared.sourceText), source);
+  assert.equal(prepared.source.sha256, sha(source));
+  assert.equal(prepared.document.panels[0].blocks[0].text, doc.panels[0].blocks[0].text);
+});
+
 test('explainer finalize opts into the browser gate and reports unavailability',t=>{
   const dir=temporary(t),input=write(dir),output=path.join(dir,'final.html');
   const result=run(['finalize','explainer',input,output,'--browser-check','--json'],{ARCHIFY_CHROME:''});assert.equal(result.status,2,result.stdout+result.stderr);

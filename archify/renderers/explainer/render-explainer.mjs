@@ -8,7 +8,20 @@ import { prepareExplainer, readPreparedBundle, assertPreparedDependencies } from
 import { renderExplainer } from '../../explainer/render.mjs';
 installRendererDiagnosticBoundary();
 const inputPath = path.resolve(process.argv[2]);
-const sourceText = fs.readFileSync(inputPath, 'utf8');
+const sourceBytes = fs.readFileSync(inputPath);
+let sourceText;
+try {
+  // Keep a valid BOM in the authored source, matching Buffer's UTF-8 decoding.
+  sourceText = new TextDecoder('utf-8', { fatal: true, ignoreBOM: true }).decode(sourceBytes);
+} catch {
+  const message = 'Explainer draft must contain valid UTF-8 bytes.';
+  throwDiagnosticError(message, [{
+    code: 'explainer/source-encoding', message,
+    subject: { input: inputPath, line: 1, component: 'document' },
+    evidence: { reason: 'invalid-utf8', example: 'Save the original draft as UTF-8 text.' },
+    supportedFixes: ['Save the original draft as UTF-8 text.'],
+  }]);
+}
 const bundle = process.env.ARCHIFY_EXPLAINER_PREPARED
   ? readPreparedBundle(process.env.ARCHIFY_EXPLAINER_PREPARED, sourceText, inputPath, { expectedInputPath: process.env.ARCHIFY_EXPLAINER_SNAPSHOT_INPUT || inputPath })
   : await prepareExplainer(sourceText, { inputPath, repoRoot: process.env.ARCHIFY_REPO_ROOT, quality: process.env.ARCHIFY_QUALITY_PROFILE });
