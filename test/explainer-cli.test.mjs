@@ -78,6 +78,25 @@ test('explainer public writing modes warn, reject strict drafts, and permit expl
   const native=run(['validate','workflow',input,'--writing','strict','--json']);assert.equal(native.status,2,native.stdout+native.stderr);assert.equal(JSON.parse(native.stdout).diagnostics[0].code,'cli/unsupported-option');
 });
 
+test('explainer validate continuation preserves the selected writing mode', t => {
+  for (const mode of ['off', 'warn', 'strict']) {
+    const dir = temporary(t), document = fixture();
+    if (mode !== 'strict') {
+      document.panels[0].blocks[0].text = 'We will perform an analysis of each and every request.';
+    }
+    const input = write(dir, document), output = path.join(dir, 'continued.html');
+    const options = mode === 'off' ? ['--writing=off'] : ['--writing', mode];
+    const validation = run(['validate', 'explainer', input, ...options, '--json']);
+    assert.equal(validation.status, 0, validation.stdout + validation.stderr);
+    const next = JSON.parse(validation.stdout).nextAction;
+    const result = run([next.command, ...next.arguments.map(value => value === '<output.html>' ? output : value)]);
+    assert.equal(result.status, 0, result.stdout + result.stderr);
+    assert.equal(bundle(output).writingMode, mode);
+    const diagnostics = JSON.parse(result.stdout).diagnostics || [];
+    assert.equal(diagnostics.some(d => d.code.startsWith('explainer/writing-')), mode === 'warn');
+  }
+});
+
 test('explainer prepared writing mode cannot silently change across stages',async t=>{
   const dir=temporary(t),input=write(dir),output=path.join(dir,'result.html');fs.writeFileSync(output,'last good');const prepared=await prepareExplainer(fs.readFileSync(input,'utf8'),{inputPath:input,writingMode:'off'});const preparedPath=writePreparedBundle(dir,prepared);
   const result=run(['deliver','explainer',input,output,'--writing','strict','--json'],{ARCHIFY_EXPLAINER_PREPARED:preparedPath});assert.equal(result.status,1);assert.equal(JSON.parse(result.stdout).diagnostics[0].evidence.reason,'writing-mode-mismatch');assert.equal(fs.readFileSync(output,'utf8'),'last good');

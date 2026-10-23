@@ -7165,6 +7165,7 @@ async function commandValidate(args, invocation = {}) {
                 '--quality',
                 resolvedQuality,
                 ...(repoRoot ? ['--repo-root', repoRoot] : []),
+                ...(writingArgs.writingMode ? ['--writing', writingArgs.writingMode] : []),
                 '--candidate-sha256',
                 candidate.sha256,
                 '--json',
